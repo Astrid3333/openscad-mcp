@@ -12,7 +12,14 @@ MCP server para OpenSCAD: escribir, validar, renderizar y exportar modelos param
 | `export_stl` | STL binario (wrapper de `render_model`) |
 | `preview_png` | PNG isométrico (cámara configurable) |
 | `run_code` | Código efímero → check + export en una llamada |
+| `project_2d` | Proyección top/front/right → DXF/SVG (laser/CNC) |
+| `import_stl` | Genera .scad que importa un STL del workspace |
+| `stl_info` | Triángulos + bounding box de un STL |
 | `openscad_version` | Versión del binario y workspace |
+
+`render_model`/`preview_png` aceptan `camera`, `view` (axes, wireframe…), `projection` (ortho/perspective), `autocenter` y `viewall` para PNG.
+
+Tests: `.venv/bin/python tests.py` (smoke test de las 13 herramientas).
 
 ## Setup
 
