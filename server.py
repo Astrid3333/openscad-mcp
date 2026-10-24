@@ -14,6 +14,7 @@ WORKSPACE = Path(os.environ.get("OPENSCAD_WORKSPACE", Path.home() / "openscad-mc
 WORKSPACE.mkdir(parents=True, exist_ok=True)
 
 OPENSCAD = shutil.which("openscad") or "/usr/bin/openscad"
+LOCAL_BIN = Path(__file__).resolve().parent / "bin"
 mcp = FastMCP(
     "openscad",
     instructions=(
@@ -31,12 +32,20 @@ def _model_path(name: str) -> Path:
 
 
 def _run_openscad(args: list[str], timeout: int = 120) -> subprocess.CompletedProcess:
+    cmd = [OPENSCAD, *args]
+    env = os.environ.copy()
+    if LOCAL_BIN.is_dir():
+        env["PATH"] = f"{LOCAL_BIN}:{env.get('PATH', '')}"
+    xvfb = shutil.which("xvfb-run", path=env["PATH"])
+    if not env.get("DISPLAY") and xvfb:
+        cmd = [xvfb, "-a", *cmd]
     return subprocess.run(
-        [OPENSCAD, *args],
+        cmd,
         capture_output=True,
         text=True,
         timeout=timeout,
         cwd=WORKSPACE,
+        env=env,
     )
 
 
