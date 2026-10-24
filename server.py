@@ -110,7 +110,7 @@ def render_model(
     out_path = WORKSPACE / out_name
     args = ["-o", str(out_path)]
     if fmt == "png":
-        args += ["--imgsize", str(img_width), str(img_height), "--colorscheme", colorscheme]
+        args += ["--imgsize", f"{img_width},{img_height}", "--colorscheme", colorscheme]
         if camera:
             args += ["--camera", camera]
     t0 = time.time()
@@ -170,7 +170,7 @@ def run_code(code: str, fmt: str = "stl", timeout: int = 300) -> str:
     try:
         args = ["-o", str(out_path)]
         if fmt == "png":
-            args += ["--imgsize", "800", "600", "--camera", "0,0,0,55,0,25,140"]
+            args += ["--imgsize", "800,600", "--camera", "0,0,0,55,0,25,140"]
         t0 = time.time()
         proc = _run_openscad(args + [src_path.name], timeout=timeout)
         dt = time.time() - t0
@@ -181,8 +181,6 @@ def run_code(code: str, fmt: str = "stl", timeout: int = 300) -> str:
         return f"OK: {out_path.name} ({size} bytes, {dt:.1f}s)\n{out}"
     finally:
         src_path.unlink(missing_ok=True)
-        if fmt != "png":
-            pass
 
 
 @mcp.tool()
