@@ -56,6 +56,17 @@ def _run_openscad(args: list[str], timeout: int = 120) -> subprocess.CompletedPr
     )
 
 
+def _issues(text: str) -> str:
+    """Append a structured summary of ERROR:/WARNING: lines from OpenSCAD output."""
+    errs = [ln for ln in text.splitlines() if ln.startswith("ERROR:")]
+    warns = [ln for ln in text.splitlines() if ln.startswith("WARNING:")]
+    if not errs and not warns:
+        return text
+    summary = f"[issues: {len(errs)} error(s), {len(warns)} warning(s)]"
+    detail = "\n".join(errs + warns[:5])
+    return f"{text}\n{summary}\n{detail}"
+
+
 def _param_args(params_json: str, param_set: str, tag: str) -> tuple[list[str], Path | None]:
     """Build [-p file, -P set] args from a JSON string of customizer parameters.
 
@@ -132,7 +143,7 @@ def check_model(name: str, timeout: int = 60) -> str:
     with tempfile.NamedTemporaryFile(suffix=".stl", delete=True) as tmp:
         proc = _run_openscad(["-o", tmp.name, path.name], timeout=timeout)
     status = "OK" if proc.returncode == 0 else f"FAIL (exit {proc.returncode})"
-    out = (proc.stdout + proc.stderr).strip() or "(no output)"
+    out = _issues((proc.stdout + proc.stderr).strip() or "(no output)")
     return f"{status}\n{out}"
 
 
@@ -224,7 +235,7 @@ def render_model(
         if pfile:
             pfile.unlink(missing_ok=True)
     dt = time.time() - t0
-    out = (proc.stdout + proc.stderr).strip()
+    out = _issues((proc.stdout + proc.stderr).strip())
     if proc.returncode != 0 or not out_path.exists():
         return f"FAIL (exit {proc.returncode}, {dt:.1f}s)\n{out}"
     size = out_path.stat().st_size
@@ -373,7 +384,7 @@ def run_code(code: str, fmt: str = "stl", params_json: str = "", param_set: str 
             if pfile:
                 pfile.unlink(missing_ok=True)
         dt = time.time() - t0
-        out = (proc.stdout + proc.stderr).strip()
+        out = _issues((proc.stdout + proc.stderr).strip())
         if proc.returncode != 0 or not out_path.exists():
             return f"FAIL (exit {proc.returncode}, {dt:.1f}s)\n{out}"
         size = out_path.stat().st_size
@@ -480,6 +491,34 @@ def openscad_version() -> str:
     except Exception as e:
         ver = f"ERROR: {e}"
     return f"{ver}\nworkspace: {WORKSPACE}\nbinary: {OPENSCAD}"
+
+
+@mcp.tool()
+def open_in_gui(name: str) -> str:
+    """Launch the OpenSCAD GUI with the given .scad file for visual inspection. Non-blocking (returns immediately with the PID)."""
+    path = _model_path(name)
+    if not path.exists():
+        return f"ERROR: {path.name} not found"
+    display = os.environ.get("DISPLAY") or ":0"
+    env = os.environ.copy()
+    env["DISPLAY"] = display
+    if LOCAL_BIN.is_dir():
+        env["PATH"] = f"{LOCAL_BIN}:{env.get('PATH', '')}"
+    try:
+        proc = subprocess.Popen(
+            [OPENSCAD, str(path)],
+            cwd=WORKSPACE,
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as e:
+        return f"ERROR: {e}"
+    time.sleep(1.5)
+    if proc.poll() is not None:
+        return f"FAIL: GUI exited immediately with code {proc.returncode} (DISPLAY={display})"
+    return f"OK: OpenSCAD GUI pid={proc.pid} showing {path.name} (DISPLAY={display})"
 
 
 if __name__ == "__main__":

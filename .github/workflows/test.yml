@@ -1,0 +1,31 @@
+name: tests
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install OpenSCAD, Xvfb, MCAD
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openscad openscad-mcad xvfb
+
+      - name: Install Python deps
+        run: pip install "mcp<2"
+
+      - name: Clone BOSL2
+        run: git clone --depth 1 https://github.com/BelfrySCAD/BOSL2.git libraries/BOSL2
+
+      - name: Run smoke tests
+        env:
+          OPENSCAD_WORKSPACE: ${{ github.workspace }}/models
+        run: python tests.py

@@ -1,3 +1,4 @@
+# [![tests](https://github.com/Astrid3333/openscad-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/Astrid3333/openscad-mcp/actions/workflows/test.yml)
 # openscad-mcp
 
 MCP server para OpenSCAD: escribir, validar, renderizar y exportar modelos paramétricos `.scad`.
@@ -18,6 +19,7 @@ MCP server para OpenSCAD: escribir, validar, renderizar y exportar modelos param
 | `render_views` | iso+front+top+right en 4 PNG (1 llamada) |
 | `list_libraries` | Bibliotecas disponibles (BOSL2, MCAD…) |
 | `add_asset` | Copia STL/SCAD/etc desde cualquier ruta al workspace |
+| `open_in_gui` | Abre el .scad en el GUI de OpenSCAD (no bloqueante, devuelve PID) |
 | `openscad_version` | Versión del binario y workspace |
 
 `render_model`/`preview_png` aceptan `camera`, `view` (axes, wireframe…), `projection` (ortho/perspective), `autocenter` y `viewall` para PNG.
