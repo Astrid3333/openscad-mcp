@@ -23,7 +23,9 @@ def expect(label: str, text: str, ok: bool = True, contains: str = ""):
 
 
 async def main():
-    params = StdioServerParameters(command=sys.executable, args=["server.py"], cwd=str(ROOT))
+    params = StdioServerParameters(
+        command=sys.executable, args=["server.py"], cwd=str(ROOT), env=dict(os.environ)
+    )
     async with stdio_client(params) as (r, w):
         async with ClientSession(r, w) as s:
             await s.initialize()
