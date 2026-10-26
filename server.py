@@ -15,6 +15,9 @@ from mcp.server.fastmcp import FastMCP
 WORKSPACE = Path(os.environ.get("OPENSCAD_WORKSPACE", Path.home() / "openscad-mcp" / "models"))
 WORKSPACE.mkdir(parents=True, exist_ok=True)
 
+LIBRARIES = Path(__file__).resolve().parent / "libraries"
+LIBRARIES.mkdir(exist_ok=True)
+
 OPENSCAD = shutil.which("openscad") or "/usr/bin/openscad"
 LOCAL_BIN = Path(__file__).resolve().parent / "bin"
 mcp = FastMCP(
@@ -38,6 +41,8 @@ def _run_openscad(args: list[str], timeout: int = 120) -> subprocess.CompletedPr
     env = os.environ.copy()
     if LOCAL_BIN.is_dir():
         env["PATH"] = f"{LOCAL_BIN}:{env.get('PATH', '')}"
+    existing = env.get("OPENSCADPATH", "")
+    env["OPENSCADPATH"] = os.pathsep.join(x for x in [str(LIBRARIES), existing] if x)
     xvfb = shutil.which("xvfb-run", path=env["PATH"])
     if not env.get("DISPLAY") and xvfb:
         cmd = [xvfb, "-a", *cmd]
@@ -49,6 +54,42 @@ def _run_openscad(args: list[str], timeout: int = 120) -> subprocess.CompletedPr
         cwd=WORKSPACE,
         env=env,
     )
+
+
+def _param_args(params_json: str, param_set: str, tag: str) -> tuple[list[str], Path | None]:
+    """Build [-p file, -P set] args from a JSON string of customizer parameters.
+
+    params_json: {"w": 20, "d": 5} or a full customizer file dict.
+    Params override TOP-LEVEL variable assignments in the .scad (customizer rules).
+    """
+    if not params_json.strip():
+        return [], None
+    import json
+
+    try:
+        data = json.loads(params_json)
+    except Exception as e:
+        raise ValueError(f"params_json is not valid JSON: {e}")
+    if not isinstance(data, dict):
+        raise ValueError("params_json must be a JSON object")
+    if "parameterSets" in data:
+        payload = data
+        sets = payload.get("parameterSets", {})
+        if not sets:
+            raise ValueError("params_json parameterSets is empty")
+        param_set = param_set or next(iter(sets))
+        if param_set not in sets:
+            raise ValueError(f"param_set '{param_set}' not in parameterSets {sorted(sets)}")
+    else:
+        param_set = param_set or "set"
+        payload = {
+            "fileFormatVersion": "1",
+            "parameterSets": {param_set: data},
+            "parameters": {},
+        }
+    pfile = WORKSPACE / f"_params_{tag}.json"
+    pfile.write_text(json.dumps(payload))
+    return ["-p", str(pfile), "-P", param_set], pfile
 
 
 @mcp.tool()
@@ -136,6 +177,8 @@ def render_model(
     projection: str = "",
     autocenter: bool = False,
     viewall: bool = False,
+    params_json: str = "",
+    param_set: str = "",
     timeout: int = 300,
 ) -> str:
     """Render a model to STL/OFF/AMF/3MF/DXF/SVG or PNG (fmt='png').
@@ -155,7 +198,11 @@ def render_model(
     out_path = WORKSPACE / out_name
     if fmt in {"dxf", "svg"}:
         return _export_2d(path, out_path, timeout=timeout)
-    args = ["-o", str(out_path)]
+    try:
+        pargs, pfile = _param_args(params_json, param_set, tag=path.stem)
+    except ValueError as e:
+        return f"ERROR: {e}"
+    args = ["-o", str(out_path), *pargs]
     if fmt == "png":
         args += ["--imgsize", f"{img_width},{img_height}", "--colorscheme", colorscheme]
         if camera:
@@ -173,6 +220,9 @@ def render_model(
         proc = _run_openscad(args + [path.name], timeout=timeout)
     except subprocess.TimeoutExpired:
         return f"ERROR: render timed out after {timeout}s"
+    finally:
+        if pfile:
+            pfile.unlink(missing_ok=True)
     dt = time.time() - t0
     out = (proc.stdout + proc.stderr).strip()
     if proc.returncode != 0 or not out_path.exists():
@@ -295,10 +345,11 @@ def stl_info(name: str) -> str:
 
 
 @mcp.tool()
-def run_code(code: str, fmt: str = "stl", timeout: int = 300) -> str:
+def run_code(code: str, fmt: str = "stl", params_json: str = "", param_set: str = "", timeout: int = 300) -> str:
     """Write ephemeral .scad code, check it, and export the result. No named model saved unless you use write_model.
 
     Use for quick experiments. On success returns the exported file path and geometry stats from OpenSCAD output.
+    params_json: JSON object of customizer params overriding top-level assignments, e.g. '{"w": 20}'.
     """
     fmt = fmt.lower().lstrip(".")
     if fmt not in {"stl", "png", "csg", "off", "3mf", "amf"}:
@@ -308,11 +359,19 @@ def run_code(code: str, fmt: str = "stl", timeout: int = 300) -> str:
         src_path = Path(src.name)
     out_path = src_path.with_suffix(f".{fmt}")
     try:
-        args = ["-o", str(out_path)]
+        try:
+            pargs, pfile = _param_args(params_json, param_set, tag=src_path.stem)
+        except ValueError as e:
+            return f"ERROR: {e}"
+        args = ["-o", str(out_path), *pargs]
         if fmt == "png":
             args += ["--imgsize", "800,600", "--camera", "0,0,0,55,0,25,140"]
         t0 = time.time()
-        proc = _run_openscad(args + [src_path.name], timeout=timeout)
+        try:
+            proc = _run_openscad(args + [src_path.name], timeout=timeout)
+        finally:
+            if pfile:
+                pfile.unlink(missing_ok=True)
         dt = time.time() - t0
         out = (proc.stdout + proc.stderr).strip()
         if proc.returncode != 0 or not out_path.exists():
@@ -324,6 +383,76 @@ def run_code(code: str, fmt: str = "stl", timeout: int = 300) -> str:
 
 
 @mcp.tool()
+def render_views(name: str, width: int = 800, height: int = 600, timeout: int = 600) -> str:
+    """Render iso, front, top and right PNG views of the model in one call (for visual verification).
+
+    Writes models/<name>_iso|front|top|right.png and returns all four paths.
+    """
+    path = _model_path(name)
+    if not path.exists():
+        return f"ERROR: {path.name} not found"
+    cameras = {
+        "iso": "0,0,0,55,0,25,140",
+        "front": "0,0,0,90,0,0,140",
+        "top": "0,0,0,0,0,0,140",
+        "right": "0,0,0,90,0,90,140",
+    }
+    results, failed = [], []
+    for label, cam in cameras.items():
+        res = render_model(
+            name,
+            output=f"{path.stem}_{label}.png",
+            fmt="png",
+            img_width=width,
+            img_height=height,
+            camera=cam,
+            autocenter=True,
+            viewall=True,
+            timeout=timeout,
+        )
+        (results if res.startswith("OK") else failed).append(f"{label}: {res.splitlines()[0]}")
+    body = "\n".join(results + failed)
+    return ("OK: 4 views rendered\n" if not failed else "PARTIAL:\n") + body
+
+
+@mcp.tool()
+def list_libraries() -> str:
+    """List available OpenSCAD libraries (OPENSCADPATH dirs + system): use <Lib/file.scad>."""
+    seen, lines = set(), []
+    env_path = os.environ.get("OPENSCADPATH", "")
+    for raw in [str(LIBRARIES), env_path, "/usr/share/openscad/libraries"]:
+        for d in (x for x in raw.split(os.pathsep) if x):
+            p = Path(d)
+            if not p.is_dir() or str(p) in seen:
+                continue
+            seen.add(str(p))
+            libs = sorted(x.name for x in p.iterdir() if x.is_dir() or x.suffix == ".scad")
+            lines.append(f"{p}:")
+            lines.extend(f"  - {n}" for n in libs)
+    return "\n".join(lines) if lines else "No library paths found"
+
+
+@mcp.tool()
+def add_asset(source_path: str, name: str = "", overwrite: bool = False) -> str:
+    """Copy a file (stl/3mf/off/dxf/svg/scad/png) from anywhere on this machine into the MCP workspace.
+
+    Then use it by filename: import_stl(name) or in code as import("<name>").
+    """
+    src = Path(source_path).expanduser()
+    if not src.is_file():
+        return f"ERROR: {src} not found"
+    if src.suffix.lower() not in {".stl", ".3mf", ".off", ".dxf", ".svg", ".scad", ".png"}:
+        return f"ERROR: unsupported extension '{src.suffix}'"
+    dst = WORKSPACE / (name or src.name)
+    if dst.suffix.lower() != src.suffix.lower():
+        dst = dst.with_suffix(src.suffix.lower())
+    if dst.exists() and not overwrite:
+        return f"ERROR: {dst.name} exists; pass overwrite=true"
+    shutil.copyfile(src, dst)
+    return f"Copied {src} -> {dst} ({dst.stat().st_size} bytes)"
+
+
+@mcp.tool()
 def delete_model(name: str) -> str:
     """Delete a saved .scad model and its common render outputs."""
     path = _model_path(name)
@@ -331,11 +460,14 @@ def delete_model(name: str) -> str:
         return f"ERROR: {path.name} not found"
     removed = [path.name]
     path.unlink()
-    for ext in (".stl", ".png", ".3mf", ".off", ".amf", ".csg"):
+    for ext in (".stl", ".png", ".3mf", ".off", ".amf", ".csg", ".dxf", ".svg", ".json"):
         p = WORKSPACE / f"{path.stem}{ext}"
         if p.exists():
             p.unlink()
             removed.append(p.name)
+        for extra in WORKSPACE.glob(f"{path.stem}_*{ext}"):
+            extra.unlink()
+            removed.append(extra.name)
     return "Deleted: " + ", ".join(removed)
 
 

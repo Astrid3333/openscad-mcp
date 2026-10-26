@@ -26,7 +26,7 @@ async def main():
             await s.initialize()
             tools = await s.list_tools()
             names = [t.name for t in tools.tools]
-            expect("list_tools", f"{len(names)} tools", contains="13")
+            expect("list_tools", f"{len(names)} tools", contains="16")
 
             async def call(tool, **kw):
                 res = await s.call_tool(tool, kw)
@@ -50,8 +50,32 @@ async def main():
             expect("error: missing", await call("read_model", name="nope"), contains="ERROR")
             expect("error: bad syntax", await call("check_model", name="t_cube"), contains="OK")
 
+            expect("params customizer", await call(
+                "run_code", code="w=1; d=1; h=1;\ncube([w,d,h]);", params_json='{"w":20,"d":5,"h":5}'
+            ), contains="OK")
+            expect("params render_model", await call(
+                "render_model", name="t_cube", fmt="stl", params_json='{"x":1}', timeout=60
+            ), contains="OK")
+            expect("list_libraries", await call("list_libraries"), contains="BOSL2")
+            expect("use BOSL2", await call(
+                "run_code", code="use <BOSL2/std.scad>\ncuboid(10);"
+            ), contains="OK")
+            expect("use MCAD", await call(
+                "run_code", code="use <MCAD/boxes.scad>\nroundedBox([20,10,5],2);"
+            ), contains="OK")
+            expect("render_views", await call("render_views", name="t_cube"), contains="4 views")
+
+            src = "/home/astrid/openscad-mcp/models/_asset_src.stl"
+            open(src, "wb").write(open("/home/astrid/openscad-mcp/models/t_cube.stl", "rb").read())
+            expect("add_asset", await call("add_asset", source_path=src, name="t_cube_asset", overwrite=True), contains="Copied")
+            expect("asset import_stl", await call("import_stl", stl_file="t_cube_asset.stl", model_name="t_asset_copy", overwrite=True), contains="Saved")
+
             await call("delete_model", name="t_cube")
             await call("delete_model", name="t_cube_copy")
+            await call("delete_model", name="t_asset_copy")
+            from pathlib import Path
+            for junk in ("t_cube_asset.stl", "_asset_src.stl"):
+                (Path("/home/astrid/openscad-mcp/models") / junk).unlink(missing_ok=True)
             expect("delete_model", "cleaned", contains="cleaned")
 
     print(f"\n{'ALL PASS' if not FAILED else 'FAILED: ' + ', '.join(FAILED)}")

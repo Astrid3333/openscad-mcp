@@ -15,11 +15,24 @@ MCP server para OpenSCAD: escribir, validar, renderizar y exportar modelos param
 | `project_2d` | Proyección top/front/right → DXF/SVG (laser/CNC) |
 | `import_stl` | Genera .scad que importa un STL del workspace |
 | `stl_info` | Triángulos + bounding box de un STL |
+| `render_views` | iso+front+top+right en 4 PNG (1 llamada) |
+| `list_libraries` | Bibliotecas disponibles (BOSL2, MCAD…) |
+| `add_asset` | Copia STL/SCAD/etc desde cualquier ruta al workspace |
 | `openscad_version` | Versión del binario y workspace |
 
 `render_model`/`preview_png` aceptan `camera`, `view` (axes, wireframe…), `projection` (ortho/perspective), `autocenter` y `viewall` para PNG.
 
-Tests: `.venv/bin/python tests.py` (smoke test de las 13 herramientas).
+**Parámetros customizer**: `render_model`/`run_code` aceptan `params_json='{"w":20,"d":5}'` y `param_set` (genera un parameterSets JSON y pasa `-p/-P`). Los parámetros sobreescriben variables de nivel superior del `.scad`.
+
+```scad
+w=10; d=5; h=5;
+cube([w,d,h]);
+```
+
+**Bibliotecas**: `use <BOSL2/std.scad>` / `use <MCAD/boxes.scad>` funcionan directo.
+BOSL2 no va en git: `git clone --depth 1 https://github.com/BelfrySCAD/BOSL2.git libraries/BOSL2`.
+
+Tests: `.venv/bin/python tests.py` (smoke test de las 16 herramientas).
 
 ## Setup
 
