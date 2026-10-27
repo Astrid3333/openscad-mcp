@@ -15,6 +15,22 @@ from mcp.server.fastmcp import FastMCP
 WORKSPACE = Path(os.environ.get("OPENSCAD_WORKSPACE", Path.home() / "openscad-mcp" / "models"))
 WORKSPACE.mkdir(parents=True, exist_ok=True)
 
+
+def _sweep_tmp() -> int:
+    """Remove leftover _tmp_* files from failed/aborted runs."""
+    n = 0
+    for f in WORKSPACE.glob("_tmp_*"):
+        try:
+            f.unlink()
+            n += 1
+        except OSError:
+            pass
+    return n
+
+
+_sweep_tmp()
+WORKSPACE.mkdir(parents=True, exist_ok=True)
+
 LIBRARIES = Path(__file__).resolve().parent / "libraries"
 LIBRARIES.mkdir(exist_ok=True)
 
@@ -391,6 +407,7 @@ def run_code(code: str, fmt: str = "stl", params_json: str = "", param_set: str 
         return f"OK: {out_path.name} ({size} bytes, {dt:.1f}s)\n{out}"
     finally:
         src_path.unlink(missing_ok=True)
+        out_path.unlink(missing_ok=True)
 
 
 @mcp.tool()
